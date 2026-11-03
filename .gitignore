@@ -1,0 +1,4 @@
+bin/
+logs/
+media/*.mp4
+*.jsonl

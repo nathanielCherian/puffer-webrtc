@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Puffer WebRTC v2</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Puffer WebRTC v2 <small>downlink measurement</small></h1>
+  <div class="controls">
+    <button id="start">Start</button>
+    <button id="stop" disabled>Stop</button>
+    <button id="download" disabled>Download JSON</button>
+    <label class="toggle" title="Hide the charts, tiles and tables and show only the video. Logging and uploads continue either way."><input id="showStats" type="checkbox" checked> Show stats</label>
+    <details class="settings">
+      <summary>Settings</summary>
+      <label>Video source <select id="source"><option value="file">Encoded per viewer (file + x264)</option></select></label>
+      <label class="pad-opt" hidden title="Only a simulcast viewer pads: it cannot raise its media rate to let GCC probe. 'probe' pads just enough to discover the next layer; 'fill' pads the whole target.">Simulcast padding <select id="padMode"><option value="probe">probe for the next layer</option><option value="fill">fill up to the GCC target</option></select></label>
+      <label>Stats poll interval (ms) <input id="interval" type="number" value="250" min="50" step="50"></label>
+      <label>Full getStats() report every N polls <input id="fullEvery" type="number" value="4" min="0" step="1"></label>
+      <label>Upload to server every (ms) <input id="uploadInterval" type="number" value="2000" min="250" step="250"></label>
+      <label>Jitter buffer target (ms, blank = browser default) <input id="jbTarget" type="number" min="0" step="10"></label>
+      <label>STUN URL (optional) <input id="stun" type="text" placeholder="stun:stun.l.google.com:19302"></label>
+      <label><input id="keepLocal" type="checkbox" checked> Keep a copy of all records in the page (for Download JSON)</label>
+    </details>
+  </div>
+  <div id="status" class="status">idle</div>
+</header>
+
+<main id="main">
+  <section class="player">
+    <video id="video" playsinline controls muted></video>
+    <p class="hint stats-only">Starts muted so autoplay is allowed. Logs are written on the server under the session's log directory; the browser uploads its own records there periodically.</p>
+    <div id="tiles" class="tiles stats-only"></div>
+  </section>
+
+  <section class="charts stats-only">
+    <figure><figcaption>Bitrate (kbps)</figcaption><canvas id="c-bitrate"></canvas></figure>
+    <figure><figcaption>Delay (ms)</figcaption><canvas id="c-delay"></canvas></figure>
+    <figure><figcaption>Frames</figcaption><canvas id="c-frames"></canvas></figure>
+  </section>
+
+  <section class="tables stats-only">
+    <details open><summary>Events</summary><ol id="events" class="events"></ol></details>
+    <details><summary>Client: latest derived stats</summary><pre id="t-derived"></pre></details>
+    <details><summary>Server: latest snapshot</summary><pre id="t-server"></pre></details>
+  </section>
+</main>
+<script src="chart.js"></script>
+<script src="owd.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

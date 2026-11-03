@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Puffer logs</title>
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+<header class="top">
+  <h1>Puffer logs <small>session dashboard</small></h1>
+  <span id="root" class="status"></span>
+  <span class="spacer"></span>
+  <label><input type="checkbox" id="auto" checked> auto-refresh live sessions</label>
+  <button id="refresh">Refresh</button>
+</header>
+<div class="layout">
+  <aside class="sessions">
+    <div class="tools">
+      <input type="search" id="search" placeholder="filter: id, browser, address…">
+      <select id="sort">
+        <option value="time">newest first</option>
+        <option value="dur">longest first</option>
+        <option value="size">largest first</option>
+      </select>
+    </div>
+    <ul id="list" class="session-list"></ul>
+  </aside>
+  <main id="detail" class="detail"><div class="placeholder">Select a session on the left.</div></main>
+</div>
+<script src="admin.js"></script>
+</body>
+</html>
