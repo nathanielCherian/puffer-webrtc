@@ -21,8 +21,9 @@ const h = (tag, attrs = {}, ...kids) => {
 const state = {
   sessions: [], selected: null, tab: 'overview',
   summary: null, series: null, meta: null, loading: 0, error: null,
-  zoom: null, hover: null, hidden: {}, markerSrc: { server: true, client: true, rtcp: true, encoder: true, cc: true }, markerLines: true,
-  qoeCats: {}, qoeLines: true,
+  zoom: null, hover: null, hidden: {}, markerSrc: { server: true, client: true, rtcp: true, encoder: true, cc: true },
+  lineSrc: {}, // event lines on the Charts tab, per source; all off until clicked
+  qoeCats: {}, qoeLineCats: {}, // QoE event lines per category; all off until clicked
   rec: { file: 'events', kind: '', q: '', from: '', to: '', limit: 100, offset: 0, data: null, open: new Set() },
   fr: { from: '', to: '', sort: 't', limit: 500, data: null, error: null },
   token: sessionStorage.getItem('adminToken') || '',
@@ -429,6 +430,7 @@ const CHARTS = [
   { title: 'Quantizer', unit: 'QP', series: [['qp', 'average QP']] },
   { title: 'Audio bitrate', unit: 'kbps', series: [['audioKbps', 'received']] },
 ];
+const MARKER_SLOT = { server: 1, client: 2, rtcp: 3, encoder: 4, cc: 7 };
 const MARKER_LINE_KINDS = new Set(['freeze', 'pause', 'nack', 'pli', 'fir', 'keyframe', 'loop', 'renderStall', 'packetLoss', 'resolution', 'closed', 'stop']);
 const charts = []; // live TimelineChart instances for the current render
 
@@ -441,8 +443,9 @@ function renderCharts(root, S) {
     h('span', {}, `bucket ${ser.bucketSec} s · drag to zoom, double-click to reset`),
     h('button', { onclick: () => { state.zoom = null; state.hover = null; renderDetail(); } }, 'Reset zoom'),
     h('span', {}, state.zoom ? `${fmtT(state.zoom[0])} – ${fmtT(state.zoom[1])}` : `0 – ${fmtT(dur)}`),
-    h('label', {}, h('input', { type: 'checkbox', checked: state.markerLines, onchange: (e) => { state.markerLines = e.target.checked; drawAll(); } }), 'event lines'),
-    ...['server', 'client', 'rtcp', 'encoder', 'cc'].map((x) => h('label', {}, h('input', { type: 'checkbox', checked: state.markerSrc[x], onchange: (e) => { state.markerSrc[x] = e.target.checked; drawAll(); } }), h('span', { class: 'badge src-' + x }, x))),
+    h('span', {}, 'event lines:'),
+    ...['server', 'client', 'rtcp', 'encoder', 'cc'].map((x) => h('span', { class: 'chip cat' + (state.lineSrc[x] ? ' on' : ''), style: `--c: var(--s${MARKER_SLOT[x]})`, title: 'click to show/hide this source\'s event lines on the charts',
+      onclick: (e) => { state.lineSrc[x] = !state.lineSrc[x]; e.currentTarget.classList.toggle('on', state.lineSrc[x]); drawAll(); } }, x)),
   );
   root.append(tools);
   const grid = h('div', { class: 'charts' });
@@ -539,10 +542,10 @@ class ChartBase {
       ctx.globalAlpha = 1;
       return;
     }
-    if (!state.markerLines || !state.series) return;
+    if (!state.series) return;
     ctx.lineWidth = 1;
     for (const m of state.series.markers) {
-      if (m.t < x0 || m.t > x1 || !state.markerSrc[m.src] || !MARKER_LINE_KINDS.has(m.kind)) continue;
+      if (m.t < x0 || m.t > x1 || !state.lineSrc[m.src] || !MARKER_LINE_KINDS.has(m.kind)) continue;
       ctx.strokeStyle = css('--s' + ({ server: 1, client: 2, rtcp: 3, encoder: 4, cc: 7 })[m.src]);
       ctx.globalAlpha = 0.45;
       ctx.beginPath(); ctx.moveTo(Math.round(x(m.t)) + 0.5, top); ctx.lineTo(Math.round(x(m.t)) + 0.5, bottom); ctx.stroke();
@@ -749,14 +752,15 @@ function renderQoE(root) {
   const counts = Object.fromEntries(QOE_CATS.map((c) => [c.id, events.filter((e) => e.cat === c).length]));
   const on = (c) => state.qoeCats[c.id] !== false;
   const visibleEvents = () => events.filter((e) => on(e.cat));
-  const overlay = () => (state.qoeLines ? visibleEvents().map((e) => ({ t: e.t, color: css('--s' + e.cat.slot) })) : []);
+  const overlay = () => events.filter((e) => state.qoeLineCats[e.cat.id]).map((e) => ({ t: e.t, color: css('--s' + e.cat.slot) }));
   const dur = Math.max(ser.durationSec || 0, 1);
   root.append(h('div', { class: 'chart-tools' },
     h('span', {}, `bucket ${ser.bucketSec} s · drag to zoom, double-click to reset`),
     h('button', { onclick: () => { state.zoom = null; state.hover = null; renderDetail(); } }, 'Reset zoom'),
     h('span', {}, state.zoom ? `${fmtT(state.zoom[0])} – ${fmtT(state.zoom[1])}` : `0 – ${fmtT(dur)}`),
-    h('label', {}, h('input', { type: 'checkbox', checked: state.qoeLines, onchange: (e) => { state.qoeLines = e.target.checked; drawAll(); } }), 'event lines on charts'),
   ));
+  root.append(h('div', { class: 'chips' }, h('span', { class: 'hint' }, 'event lines on charts:'), ...QOE_CATS.map((c) => h('span', { class: 'chip cat' + (state.qoeLineCats[c.id] ? ' on' : ''), style: `--c: var(--s${c.slot})`,
+    onclick: (e) => { state.qoeLineCats[c.id] = !state.qoeLineCats[c.id]; e.currentTarget.classList.toggle('on', !!state.qoeLineCats[c.id]); drawAll(); } }, c.name.split(' (')[0]))));
   root.append(h('div', { class: 'chips' }, ...QOE_CATS.map((c) => h('span', { class: 'chip cat' + (on(c) ? ' on' : ''), style: `--c: var(--s${c.slot})`, onclick: () => { state.qoeCats[c.id] = !on(c); renderDetail(); } }, c.name, h('span', { class: 'n' }, counts[c.id])))));
   const grid = h('div', { class: 'charts' });
   root.append(grid);
