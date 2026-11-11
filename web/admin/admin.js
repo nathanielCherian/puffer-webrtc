@@ -23,7 +23,7 @@ const state = {
   summary: null, series: null, meta: null, loading: 0, error: null,
   zoom: null, hover: null, hidden: {}, markerSrc: { server: true, client: true, rtcp: true, encoder: true, cc: true },
   lineSrc: {}, // event lines on the Charts tab, per source; all off until clicked
-  qoeCats: {}, qoeLineCats: {}, // QoE event lines per category; all off until clicked
+  qoeCats: {}, qoeLines: true, // QoE categories are all off until clicked (too many events otherwise); a selected category gets lines on the charts and rows in the list
   rec: { file: 'events', kind: '', q: '', from: '', to: '', limit: 100, offset: 0, data: null, open: new Set() },
   fr: { from: '', to: '', sort: 't', limit: 500, data: null, error: null },
   token: sessionStorage.getItem('adminToken') || '',
@@ -750,17 +750,16 @@ function renderQoE(root) {
   if (!ser) { root.append(h('div', { class: 'placeholder' }, 'Loading series…')); return; }
   const events = qoeEvents(ser);
   const counts = Object.fromEntries(QOE_CATS.map((c) => [c.id, events.filter((e) => e.cat === c).length]));
-  const on = (c) => state.qoeCats[c.id] !== false;
+  const on = (c) => !!state.qoeCats[c.id];
   const visibleEvents = () => events.filter((e) => on(e.cat));
-  const overlay = () => events.filter((e) => state.qoeLineCats[e.cat.id]).map((e) => ({ t: e.t, color: css('--s' + e.cat.slot) }));
+  const overlay = () => (state.qoeLines ? visibleEvents().map((e) => ({ t: e.t, color: css('--s' + e.cat.slot) })) : []);
   const dur = Math.max(ser.durationSec || 0, 1);
   root.append(h('div', { class: 'chart-tools' },
     h('span', {}, `bucket ${ser.bucketSec} s · drag to zoom, double-click to reset`),
     h('button', { onclick: () => { state.zoom = null; state.hover = null; renderDetail(); } }, 'Reset zoom'),
     h('span', {}, state.zoom ? `${fmtT(state.zoom[0])} – ${fmtT(state.zoom[1])}` : `0 – ${fmtT(dur)}`),
+    h('label', { title: 'draw a line on the charts for every event of the categories selected below (click a category to select it)' }, h('input', { type: 'checkbox', checked: state.qoeLines, onchange: (e) => { state.qoeLines = e.target.checked; drawAll(); } }), 'event lines on charts'),
   ));
-  root.append(h('div', { class: 'chips' }, h('span', { class: 'hint' }, 'event lines on charts:'), ...QOE_CATS.map((c) => h('span', { class: 'chip cat' + (state.qoeLineCats[c.id] ? ' on' : ''), style: `--c: var(--s${c.slot})`,
-    onclick: (e) => { state.qoeLineCats[c.id] = !state.qoeLineCats[c.id]; e.currentTarget.classList.toggle('on', !!state.qoeLineCats[c.id]); drawAll(); } }, c.name.split(' (')[0]))));
   root.append(h('div', { class: 'chips' }, ...QOE_CATS.map((c) => h('span', { class: 'chip cat' + (on(c) ? ' on' : ''), style: `--c: var(--s${c.slot})`, onclick: () => { state.qoeCats[c.id] = !on(c); renderDetail(); } }, c.name, h('span', { class: 'n' }, counts[c.id])))));
   const grid = h('div', { class: 'charts' });
   root.append(grid);
@@ -770,10 +769,10 @@ function renderQoE(root) {
     if (!present.length) { grid.append(h('div', { class: 'chart wide' }, h('div', { class: 'head' }, h('span', { class: 'title' }, def.title)), h('div', { class: 'hint' }, 'no data in this session'))); continue; }
     grid.append(new TimelineChart(def, present, ser, { tall: true, overlay }).el);
   }
-  grid.append(new QoEStrip(events, on).el);
+  grid.append(new QoEStrip(events, () => true).el); // the overview: every category, selected or not
   // The events as a list, for reading exact times.
   const list = visibleEvents();
-  const panel = h('div', { class: 'panel' }, h('h3', {}, `${list.length} events in the selected categories`));
+  const panel = h('div', { class: 'panel' }, h('h3', {}, QOE_CATS.some(on) ? `${list.length} events in the selected categories` : 'No category selected: click one above to list its events and draw them on the charts'));
   panel.append(h('div', { class: 'scroll', style: 'max-height: 40vh' }, h('table', { class: 'grid' }, h('thead', {}, h('tr', {}, h('th', {}, 't'), h('th', {}, 'category'), h('th', {}, 'event'))),
     h('tbody', {}, ...list.slice(0, 2000).map((e) => h('tr', { title: 'click to zoom ±5 s', onclick: () => { state.zoom = [Math.max(0, e.t - 5), e.t + 5]; state.hover = null; renderDetail(); } },
       h('td', { class: 't num' }, fmtT(e.t)), h('td', {}, h('span', { class: 'badge', style: `border-color: var(--s${e.cat.slot}); color: var(--s${e.cat.slot})` }, e.cat.name.split(' (')[0])), h('td', {}, e.text)))))));
