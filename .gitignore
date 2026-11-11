@@ -1,4 +1,4 @@
 bin/
-logs/
+/logs/
 media/*.mp4
 *.jsonl
