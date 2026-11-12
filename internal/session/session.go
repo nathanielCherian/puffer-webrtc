@@ -101,8 +101,8 @@ type OfferRequest struct {
 	// Source is "" (or "file"): decode and encode the video file for this session
 	// alone; or "simulcast": forward the shared pre-encoded renditions.
 	Source string `json:"source,omitempty"`
-	// Padding is "" (or "probe"): pad only to probe for the next simulcast layer;
-	// or "fill": pad up to the whole GCC target. Simulcast sessions only.
+	// Padding is "" (or "fill"): pad up to the whole GCC target; or "probe": pad
+	// only to probe for the next simulcast layer. Simulcast sessions only.
 	Padding string `json:"padding,omitempty"`
 }
 

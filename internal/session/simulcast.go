@@ -23,8 +23,9 @@ import (
 // simulcast.Hub instead of running their own decoder and encoder. Each session
 // still has its own PeerConnection and GCC; GCC's target picks which rendition
 // to forward, switching on the renditions' time-aligned IDRs, and the session
-// pads with probe packets so GCC can discover that a higher rendition fits (or,
-// with OfferRequest.Padding "fill", so the send rate always matches the target).
+// pads up to the GCC target so the send rate always matches it (or, with
+// OfferRequest.Padding "probe", only enough for GCC to discover that a higher
+// rendition fits).
 // Ported from github.com/nathanielCherian/webrtc-test (internal/session/simulcast.go).
 
 // Sources of OfferRequest.Source.
@@ -35,8 +36,8 @@ const (
 
 // Padding modes of simulcast sessions (OfferRequest.Padding).
 const (
-	PaddingProbe = "probe" // pad only to probe for the next layer (default)
-	PaddingFill  = "fill"  // pad up to the whole GCC target
+	PaddingProbe = "probe" // pad only to probe for the next layer
+	PaddingFill  = "fill"  // pad up to the whole GCC target (default)
 )
 
 const (
@@ -90,9 +91,9 @@ func (m *Manager) newSimState(req OfferRequest) (*simState, error) {
 	st := &simState{layers: layers, sel: simulcast.NewSelector(rates), cur: -1, pending: -1,
 		layerFrames: make([]int64, len(layers))}
 	switch req.Padding {
-	case "", PaddingProbe:
-	case PaddingFill:
+	case "", PaddingFill:
 		st.fill = true
+	case PaddingProbe:
 	default:
 		return nil, fmt.Errorf("%w: unknown padding %q", ErrBadOffer, req.Padding)
 	}

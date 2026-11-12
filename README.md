@@ -139,8 +139,9 @@ transcoder ─┬─ high 2500k :5001 ─┐               │
   discard. Pion's GCC only counts payload bytes, so probes go through GCC as
   zero-filled payloads and become padding just before SRTP
   (`internal/probe`). Padding pauses for 3 s after GCC lowers its target.
-- **Fill padding (optional):** with `"padding": "fill"` the viewer instead
-  pads all the way up to the GCC target, on every layer including the top
+- **Fill padding (default):** unless the offer says `"padding": "probe"`,
+  the viewer does not stop at the next layer but pads all the way up to the
+  GCC target, on every layer including the top
   one, so the send rate (video + audio + padding) matches the target the way a
   sender with a full encoder would. It is a token bucket: every 10 ms the
   viewer earns the target's bytes, pays for the video and audio it sent, and
@@ -166,15 +167,16 @@ make renditions                      # or: ./scripts/simulcast-renditions.sh med
 
 On the page, **Settings → Video source** lists "Live simulcast (shared
 encoder)" and selects it by default when the server has it. **Simulcast
-padding** (shown for that source) switches between probing for the next layer
-and filling up to the GCC target. The bitrate chart then also shows the
+padding** (shown for that source) switches between filling up to the GCC
+target (the default) and only probing for the next layer. The bitrate chart then also shows the
 forwarded layer's nominal bitrate (as "encoder configured / simulcast
 layer"), the padding, and the total send rate (video + audio + padding).
 Layer switches appear in **Events**; the server snapshot has a `simulcast`
 section and the `media` section shows the hub's per-layer status.
 
 The API is `"source": "simulcast"` in the `/offer` body, plus
-`"padding": "fill"` for fill padding. `GET /info` includes the hub status
+`"padding": "probe"` to pad only for the next layer instead of filling up to
+the GCC target. `GET /info` includes the hub status
 under `simulcast`. The UDP ports are bound by this server.
 
 In the logs (see [The logs](#the-logs)): `meta.json` has `source` and

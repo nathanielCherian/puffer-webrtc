@@ -17,7 +17,7 @@
     <details class="settings">
       <summary>Settings</summary>
       <label>Video source <select id="source"><option value="file">Encoded per viewer (file + x264)</option></select></label>
-      <label class="pad-opt" hidden title="Only a simulcast viewer pads: it cannot raise its media rate to let GCC probe. 'probe' pads just enough to discover the next layer; 'fill' pads the whole target.">Simulcast padding <select id="padMode"><option value="probe">probe for the next layer</option><option value="fill">fill up to the GCC target</option></select></label>
+      <label class="pad-opt" hidden title="Only a simulcast viewer pads: it cannot raise its media rate to let GCC probe. 'fill' (default) pads the whole target; 'probe' pads just enough to discover the next layer.">Simulcast padding <select id="padMode"><option value="fill">fill up to the GCC target</option><option value="probe">probe for the next layer</option></select></label>
       <label>Stats poll interval (ms) <input id="interval" type="number" value="250" min="50" step="50"></label>
       <label>Full getStats() report every N polls <input id="fullEvery" type="number" value="4" min="0" step="1"></label>
       <label>Upload to server every (ms) <input id="uploadInterval" type="number" value="2000" min="250" step="250"></label>
