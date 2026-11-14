@@ -79,6 +79,7 @@ Every flag can also be set as `PUFFER_<FLAG>` (e.g. `PUFFER_UDP_PORT=50010`).
 | `--pc-stats-every` | 4 | include pion `GetStats()` every N snapshots |
 | `--owd-interval` / `--owd-size` | 20ms / 13 | one-way-delay beacon period and size (bytes) |
 | `--log-dir` | `logs` | |
+| `--client-timeout` | 10s | close a session when nothing at all has arrived from its client for this long (see [Client disconnects](#client-disconnects)); 0 = Pion's defaults, about 30 s |
 | `--max-sessions` | 8 | each file session is one ffmpeg decode + one x264 encode (simulcast sessions encode nothing) |
 | `--simulcast` | | renditions for the [shared simulcast source](#shared-simulcast-source): `name=host:port@bitrate,...` (MPEG-TS over UDP), e.g. `high=127.0.0.1:5001@2500k,mid=127.0.0.1:5002@800k,low=127.0.0.1:5003@250k` |
 | `--simulcast-audio` | highest layer | rendition whose AAC audio is transcoded (once) to Opus; `none` for no audio |
@@ -97,6 +98,25 @@ while hidden. The choice is remembered in the browser and can be forced with
 `?view=video` or `?view=stats` in the URL. The mode is logged as
 `settings.view` in `clientInfo` and as a `view` event on every change, so a
 run can be filtered by what the viewer was looking at.
+
+## Client disconnects
+
+A viewer that presses **Stop** or closes the connection is noticed at once
+(`closed: peer connection closed`). A viewer that just vanishes (crashed tab,
+lost network, laptop lid closed) sends nothing to say so, so the server times
+it out: when nothing at all has arrived from the client for `--client-timeout`
+(default 10 s), the session is closed, which stops its decoder, encoder,
+padding and logging and frees its slot. "Nothing at all" means any packet on
+the connection: RTCP feedback, STUN checks, DataChannel traffic. The clock is
+Pion's ICE agent, so it does not depend on the page's JavaScript timers, which
+browsers throttle in background tabs.
+
+In `events.jsonl` this shows as `pcState disconnected` after half the timeout
+(at most 5 s), then `pcState failed` and `closed: client timeout: nothing
+received for 10s`. A client that comes back before the timeout goes back to
+`connected` and the session carries on. Expect the close about a second or
+two after the timeout, since the check runs periodically. Raise the timeout
+for experiments that black out the network for longer than it.
 
 ## Shared simulcast source
 

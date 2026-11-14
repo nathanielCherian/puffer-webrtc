@@ -60,6 +60,7 @@ func main() {
 		owdInterval   = flag.Duration("owd-interval", 20*time.Millisecond, "one-way-delay beacon interval")
 		owdSize       = flag.Int("owd-size", 13, "one-way-delay beacon size in bytes (13..1100)")
 		logDir        = flag.String("log-dir", "logs", "root directory for per-session log directories")
+		clientTimeout = flag.Duration("client-timeout", 10*time.Second, "close a session when nothing at all (RTCP, STUN, DataChannel) has arrived from its client for this long; 0 = Pion's defaults (about 30s)")
 		maxSessions   = flag.Int("max-sessions", 8, "maximum concurrent viewers (each costs ~1 CPU core at 720p30)")
 		simulcastSpec = flag.String("simulcast", "", "shared pre-encoded renditions to offer as the \"simulcast\" source: "+
 			"name=host:port@bitrate,... (MPEG-TS over UDP, e.g. high=127.0.0.1:5001@2500k,mid=127.0.0.1:5002@800k,low=127.0.0.1:5003@250k)")
@@ -89,6 +90,14 @@ func main() {
 		netTypes = append(netTypes, webrtc.NetworkTypeUDP6)
 	}
 	se.SetNetworkTypes(netTypes)
+	if *clientTimeout > 0 {
+		// Pion's ICE agent timestamps every packet received from the client (media
+		// feedback, STUN, DTLS/SCTP). It reports "disconnected" after a first
+		// stretch of silence and "failed" after a further one; the session closes
+		// on "failed". A client that comes back in between just carries on.
+		disconnected := min(5*time.Second, *clientTimeout/2)
+		se.SetICETimeouts(disconnected, *clientTimeout-disconnected, min(2*time.Second, disconnected/2))
+	}
 	if *udpPort > 0 {
 		network := "udp4"
 		if *ipv6 {
@@ -126,7 +135,7 @@ func main() {
 		X264Preset: *preset, X264Threads: *threads,
 		SnapshotInterval: *snapInt, PCStatsEvery: *pcStatsEvery,
 		OWDInterval: *owdInterval, OWDSize: *owdSize,
-		LogDir: *logDir, ConnectTimeout: 30 * time.Second, MaxSessions: *maxSessions,
+		LogDir: *logDir, ConnectTimeout: 30 * time.Second, ClientTimeout: *clientTimeout, MaxSessions: *maxSessions,
 		ICEServers: iceServers,
 	}
 	mgr := session.NewManager(cfg, info, se, hostInfo(*publicIP, *udpPort))

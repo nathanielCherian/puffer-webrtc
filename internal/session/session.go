@@ -54,6 +54,7 @@ type Config struct {
 	OWDSize                              int // beacon bytes (13..1100)
 	LogDir                               string
 	ConnectTimeout                       time.Duration
+	ClientTimeout                        time.Duration // close when the client has been silent this long (0 = Pion's ICE defaults)
 	MaxSessions                          int
 	ICEServers                           []webrtc.ICEServer
 }
@@ -346,8 +347,16 @@ func (s *Session) setup(ctx context.Context, req OfferRequest) error {
 					go s.run()
 				}
 			}
-		case webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateClosed:
-			s.Close("peer connection " + st.String())
+		case webrtc.PeerConnectionStateFailed:
+			// After the connection was up, "failed" means the client went silent
+			// (crashed, lost its network, went to sleep): see --client-timeout.
+			if s.started.Load() && s.cfg.ClientTimeout > 0 {
+				s.Close(fmt.Sprintf("client timeout: nothing received for %s", s.cfg.ClientTimeout))
+			} else {
+				s.Close("peer connection failed")
+			}
+		case webrtc.PeerConnectionStateClosed:
+			s.Close("peer connection closed")
 		}
 	})
 	pc.OnICEConnectionStateChange(func(st webrtc.ICEConnectionState) { s.event("iceState", st.String()) })
