@@ -80,6 +80,7 @@ Every flag can also be set as `PUFFER_<FLAG>` (e.g. `PUFFER_UDP_PORT=50010`).
 | `--owd-interval` / `--owd-size` | 20ms / 13 | one-way-delay beacon period and size (bytes) |
 | `--log-dir` | `logs` | |
 | `--client-timeout` | 10s | close a session when nothing at all has arrived from its client for this long (see [Client disconnects](#client-disconnects)); 0 = Pion's defaults, about 30 s |
+| `--ignore-nacks` | off | experiment: never retransmit. The browser's NACKs are still received and logged in `rtcp.jsonl`, but go unanswered, so it has to recover from loss by PLI (a new keyframe; for a simulcast viewer, the layer's next periodic IDR) |
 | `--max-sessions` | 8 | each file session is one ffmpeg decode + one x264 encode (simulcast sessions encode nothing) |
 | `--simulcast` | | renditions for the [shared simulcast source](#shared-simulcast-source): `name=host:port@bitrate,...` (MPEG-TS over UDP), e.g. `high=127.0.0.1:5001@2500k,mid=127.0.0.1:5002@800k,low=127.0.0.1:5003@250k` |
 | `--simulcast-audio` | highest layer | rendition whose AAC audio is transcoded (once) to Opus; `none` for no audio |

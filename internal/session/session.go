@@ -55,6 +55,7 @@ type Config struct {
 	LogDir                               string
 	ConnectTimeout                       time.Duration
 	ClientTimeout                        time.Duration // close when the client has been silent this long (0 = Pion's ICE defaults)
+	IgnoreNACKs                          bool          // experiment: never retransmit (NACKs are still received and logged)
 	MaxSessions                          int
 	ICEServers                           []webrtc.ICEServer
 }
@@ -312,7 +313,13 @@ func (s *Session) setup(ctx context.Context, req OfferRequest) error {
 	statsFactory.OnNewPeerConnection(func(_ string, g stats.Getter) { getterCh <- g })
 	ir.Add(statsFactory)
 	ir.Add(s.resends)
-	if err := webrtc.ConfigureNack(me, ir); err != nil {
+	// The NACK responder keeps recent packets and resends the ones a NACK asks
+	// for. With --ignore-nacks it is left out: the codecs still advertise NACK
+	// support (registerCodecs), so the browser keeps sending NACKs and they are
+	// logged, but nothing is retransmitted and it has to recover by PLI.
+	if s.cfg.IgnoreNACKs {
+		s.event("nack", "retransmissions disabled (--ignore-nacks): NACKs are logged but not answered")
+	} else if err := webrtc.ConfigureNack(me, ir); err != nil {
 		return err
 	}
 	if err := webrtc.ConfigureRTCPReports(ir); err != nil {
