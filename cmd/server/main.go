@@ -25,6 +25,7 @@ import (
 	"github.com/pion/webrtc/v4"
 
 	"puffer-webrtc-v2/internal/media"
+	"puffer-webrtc-v2/internal/probe"
 	"puffer-webrtc-v2/internal/session"
 	"puffer-webrtc-v2/internal/simulcast"
 	"puffer-webrtc-v2/internal/x264"
@@ -62,6 +63,7 @@ func main() {
 		logDir        = flag.String("log-dir", "logs", "root directory for per-session log directories")
 		clientTimeout = flag.Duration("client-timeout", 10*time.Second, "close a session when nothing at all (RTCP, STUN, DataChannel) has arrived from its client for this long; 0 = Pion's defaults (about 30s)")
 		ignoreNACKs   = flag.Bool("ignore-nacks", false, "experiment: never retransmit; the browser's NACKs are still received and logged, but go unanswered")
+		paddingBytes  = flag.Int("padding-bytes", probe.MaxBytes, "size of one simulcast padding packet (1..1024): up to 255 it is an RTP padding-only packet; above that, each whole 256 bytes is zero filler in the RFC 8285 header-extension block and the rest RTP padding")
 		maxSessions   = flag.Int("max-sessions", 8, "maximum concurrent viewers (each costs ~1 CPU core at 720p30)")
 		simulcastSpec = flag.String("simulcast", "", "shared pre-encoded renditions to offer as the \"simulcast\" source: "+
 			"name=host:port@bitrate,... (MPEG-TS over UDP, e.g. high=127.0.0.1:5001@2500k,mid=127.0.0.1:5002@800k,low=127.0.0.1:5003@250k)")
@@ -75,6 +77,10 @@ func main() {
 		}
 	})
 	flag.Parse()
+
+	if *paddingBytes < 1 || *paddingBytes > probe.MaxBytes {
+		log.Fatalf("--padding-bytes %d: must be 1..%d", *paddingBytes, probe.MaxBytes)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -136,7 +142,7 @@ func main() {
 		X264Preset: *preset, X264Threads: *threads,
 		SnapshotInterval: *snapInt, PCStatsEvery: *pcStatsEvery,
 		OWDInterval: *owdInterval, OWDSize: *owdSize,
-		LogDir: *logDir, ConnectTimeout: 30 * time.Second, ClientTimeout: *clientTimeout, IgnoreNACKs: *ignoreNACKs, MaxSessions: *maxSessions,
+		LogDir: *logDir, ConnectTimeout: 30 * time.Second, ClientTimeout: *clientTimeout, IgnoreNACKs: *ignoreNACKs, PaddingBytes: *paddingBytes, MaxSessions: *maxSessions,
 		ICEServers: iceServers,
 	}
 	mgr := session.NewManager(cfg, info, se, hostInfo(*publicIP, *udpPort))

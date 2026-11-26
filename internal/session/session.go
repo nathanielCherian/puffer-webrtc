@@ -56,8 +56,12 @@ type Config struct {
 	ConnectTimeout                       time.Duration
 	ClientTimeout                        time.Duration // close when the client has been silent this long (0 = Pion's ICE defaults)
 	IgnoreNACKs                          bool          // experiment: never retransmit (NACKs are still received and logged)
-	MaxSessions                          int
-	ICEServers                           []webrtc.ICEServer
+	// PaddingBytes is the size of one simulcast padding probe (1..probe.MaxBytes):
+	// up to 255 it is an RTP padding-only packet, above that the whole multiples
+	// of 256 are RFC 8285 header-extension filler (internal/probe).
+	PaddingBytes int
+	MaxSessions  int
+	ICEServers   []webrtc.ICEServer
 }
 
 // Manager creates and tracks sessions.

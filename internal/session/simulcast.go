@@ -89,7 +89,10 @@ func (m *Manager) newSimState(req OfferRequest) (*simState, error) {
 		rates[i] = l.BitrateBps
 	}
 	st := &simState{layers: layers, sel: simulcast.NewSelector(rates), cur: -1, pending: -1,
-		layerFrames: make([]int64, len(layers))}
+		layerFrames: make([]int64, len(layers)), padSize: m.cfg.PaddingBytes}
+	if st.padSize < 1 || st.padSize > probe.MaxBytes {
+		st.padSize = probe.MaxBytes
+	}
 	switch req.Padding {
 	case "", PaddingFill:
 		st.fill = true
@@ -106,6 +109,8 @@ type simState struct {
 	layers []simulcast.LayerConfig
 	sel    *simulcast.Selector
 	fill   bool // pad up to the whole GCC target instead of only probing
+	// padSize is the size of one padding probe (Config.PaddingBytes).
+	padSize int
 
 	mu          sync.Mutex // guards everything below (read by snapshots)
 	cur         int        // layer being forwarded, -1 before the first keyframe
@@ -149,7 +154,7 @@ func (st *simState) describe() map[string]any {
 	if st == nil {
 		return nil
 	}
-	return map[string]any{"layers": st.layers, "padding": st.paddingMode(),
+	return map[string]any{"layers": st.layers, "padding": st.paddingMode(), "paddingBytes": st.padSize,
 		"upMargin": st.sel.UpMargin, "upHoldMs": float64(st.sel.UpHold.Milliseconds())}
 }
 
@@ -390,8 +395,10 @@ func (fw *forwarder) frame(f *simulcast.Frame) error {
 
 // padding sends probe packets: at the rate simDecide chose, or in fill mode
 // whatever the target allowed since the last tick and the media did not use.
+// Each probe is simState.padSize bytes.
 func (fw *forwarder) padding(dt time.Duration) error {
 	st := fw.s.sim
+	size := st.padSize
 	st.mu.Lock()
 	rate, fill := st.padBps, st.fillBps
 	st.mu.Unlock()
@@ -410,18 +417,18 @@ func (fw *forwarder) padding(dt time.Duration) error {
 			fw.fillDebt = 0
 		}
 	default:
-		fw.padCredit = math.Min(fw.padCredit+float64(rate)*dt.Seconds()/8, 8*probe.MaxBytes)
+		fw.padCredit = math.Min(fw.padCredit+float64(rate)*dt.Seconds()/8, 8*float64(size))
 	}
 	var n, bytes int64
-	for fw.padCredit >= probe.MaxBytes {
+	for fw.padCredit >= float64(size) {
 		pkt := &rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: fw.seq.NextSequenceNumber(), Timestamp: fw.ts},
-			Payload: probe.Payload(probe.MaxBytes)}
+			Payload: probe.Payload(size)}
 		if err := fw.s.videoRTP.WriteRTP(pkt); err != nil {
 			return err
 		}
-		fw.padCredit -= probe.MaxBytes
+		fw.padCredit -= float64(size)
 		n++
-		bytes += probe.MaxBytes
+		bytes += int64(size)
 	}
 	st.mu.Lock()
 	st.padPackets += n
