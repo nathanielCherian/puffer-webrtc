@@ -80,6 +80,7 @@ Every flag can also be set as `PUFFER_<FLAG>` (e.g. `PUFFER_UDP_PORT=50010`).
 | `--owd-interval` / `--owd-size` | 20ms / 13 | one-way-delay beacon period and size (bytes) |
 | `--log-dir` | `logs` | |
 | `--client-timeout` | 10s | close a session when nothing at all has arrived from its client for this long (see [Client disconnects](#client-disconnects)); 0 = Pion's defaults, about 30 s |
+| `--padding-bytes` | 1024 | size of one simulcast padding packet (1..1024). Up to 255 it is an RTP padding-only packet; above that, each whole 256 bytes is zero filler in the RFC 8285 header-extension block and the rest RTP padding. Fewer, larger packets for the same padding rate |
 | `--ignore-nacks` | off | experiment: never retransmit. The browser's NACKs are still received and logged in `rtcp.jsonl`, but go unanswered, so it has to recover from loss by PLI (a new keyframe; for a simulcast viewer, the layer's next periodic IDR) |
 | `--max-sessions` | 8 | each file session is one ffmpeg decode + one x264 encode (simulcast sessions encode nothing) |
 | `--simulcast` | | renditions for the [shared simulcast source](#shared-simulcast-source): `name=host:port@bitrate,...` (MPEG-TS over UDP), e.g. `high=127.0.0.1:5001@2500k,mid=127.0.0.1:5002@800k,low=127.0.0.1:5003@250k` |
@@ -156,10 +157,16 @@ transcoder ─┬─ high 2500k :5001 ─┐               │
   sees acknowledged, so a viewer sending a fixed-rate low layer would never
   discover that a higher layer fits. As libwebrtc does, a viewer below the top
   layer pads its send rate up to its estimate (at most what the next layer
-  needs). The padding is sent as RTP padding-only packets, which browsers
-  discard. Pion's GCC only counts payload bytes, so probes go through GCC as
-  zero-filled payloads and become padding just before SRTP
-  (`internal/probe`). Padding pauses for 3 s after GCC lowers its target.
+  needs). The padding is sent as packets with no payload, which browsers
+  discard. RTP's own padding (the P bit) has a one-byte length, so it carries
+  at most 255 bytes per packet. To send full-size packets instead, the bytes
+  go into the header-extension block: RFC 8285 lets it contain zero bytes that
+  the receiver skips, and its length field allows far more than a packet.
+  A probe is `--padding-bytes` long (default 1024): each whole 256 bytes of it
+  is extension filler and the rest RTP padding, so `--padding-bytes 255` gives
+  classic padding-only packets. Pion's GCC only counts payload bytes, so
+  probes go through GCC as zero-filled payloads and are converted just before
+  SRTP (`internal/probe`). Padding pauses for 3 s after GCC lowers its target.
 - **Fill padding (default):** unless the offer says `"padding": "probe"`,
   the viewer does not stop at the next layer but pads all the way up to the
   GCC target, on every layer including the top
@@ -306,7 +313,8 @@ controller itself used:
   `ts`, `hdr` (header bytes), `len` (payload bytes, which is what pion's GCC
   counts), `pad`, `rtx` (a NACK resend), `qMs` (time in the pacer queue),
   and in simulcast sessions `probe: true` for a padding probe (GCC counted
-  `len` payload bytes; the packet left as RTP padding of the same size).
+  `len` payload bytes; the packet left with no payload and the same number
+  of bytes as header-extension filler and RTP padding).
 - `feedback` — one record per RTCP batch containing TWCC (or RFC 8888): the
   arrival time, each feedback decoded to `pkts: [{seq, status, recvMs}]`
   (`recvMs` on the browser's TWCC clock = reference time + cumulative deltas;
@@ -410,6 +418,16 @@ times joined with TWCC receive times give per-RTP-packet delay variation.
 
 ## Notes
 
+- The congestion controller is Pion's GCC, built from a copy in
+  `internal/pion` (pion/interceptor v0.1.49, MIT) with one fix, in
+  `internal/pion/cc/feedback_adapter.go`. Upstream remembers only the last 250
+  packets it sent; at a few thousand packets per second that is less than the
+  time TWCC feedback takes to return, and feedback for a packet it had
+  forgotten was counted as a loss, so GCC cut its rate on a clean path. The
+  copy remembers 10 s of packets whatever the rate, skips feedback for packets
+  it has no record of, and reads only as many statuses as the feedback says it
+  has (the filler symbols of the last status chunk were also read as losses).
+  The copy is otherwise unchanged; diff it against the module to see.
 - The client uploads over HTTP (not the DataChannel), so the SCTP association
   carries only low-rate control traffic. Uploads share the network path but
   not the RTP flow; GCC never sees them.

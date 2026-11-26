@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"puffer-webrtc-v2/internal/pion/cc"
 	"github.com/pion/logging"
+	"puffer-webrtc-v2/internal/pion/cc"
 )
 
 // DelayStats contains some internal statistics of the delay based congestion

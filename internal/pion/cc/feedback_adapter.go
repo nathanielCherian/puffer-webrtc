@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/pion/interceptor"
-	"puffer-webrtc-v2/internal/pion/ntp"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
+	"puffer-webrtc-v2/internal/pion/ntp"
 )
 
 // TwccExtensionAttributesKey identifies the TWCC value in the attribute collection
@@ -24,6 +24,19 @@ var (
 	errInvalidFeedback      = errors.New("invalid feedback")
 )
 
+// HistoryWindow is how long a sent packet is remembered so that feedback can
+// be matched to it.
+//
+// Changed from pion/interceptor v0.1.49, which kept the last 250 packets
+// whatever their age: at 2500 packets per second that is 100 ms, less than the
+// time feedback takes to come back, and the packets it had already forgotten
+// were then reported as lost. A window of time holds at any rate (libwebrtc
+// keeps 60 s); 10 s of 2500 packets per second is 25,000 small entries, and it
+// stays below the 65,536 packets after which sequence numbers repeat up to
+// about 6,500 packets per second (past that a newer packet replaces the older
+// one with the same number).
+const HistoryWindow = 10 * time.Second
+
 // FeedbackAdapter converts incoming RTCP Packets (TWCC and RFC8888) into Acknowledgments.
 // Acknowledgments are the common format that Congestion Controllers in Pion understand.
 type FeedbackAdapter struct {
@@ -33,7 +46,7 @@ type FeedbackAdapter struct {
 
 // NewFeedbackAdapter returns a new FeedbackAdapter.
 func NewFeedbackAdapter() *FeedbackAdapter {
-	return &FeedbackAdapter{history: newFeedbackHistory(250)}
+	return &FeedbackAdapter{history: newFeedbackHistory(HistoryWindow)}
 }
 
 func (f *FeedbackAdapter) onSentRFC8888(ts time.Time, header *rtp.Header, size int) error {
@@ -86,66 +99,19 @@ func (f *FeedbackAdapter) OnSent(ts time.Time, header *rtp.Header, size int, att
 	return f.onSentRFC8888(ts, header, size)
 }
 
-func (f *FeedbackAdapter) unpackRunLengthChunk(
-	start uint16, refTime time.Time, chunk *rtcp.RunLengthChunk, deltas []*rtcp.RecvDelta,
-) (consumedDeltas int, nextRef time.Time, acks []Acknowledgment, err error) {
-	result := make([]Acknowledgment, chunk.RunLength)
-	deltaIndex := 0
-
-	end := start + chunk.RunLength
-	resultIndex := 0
-	for i := start; i != end; i++ {
-		key := feedbackHistoryKey{
-			ssrc:           0,
-			sequenceNumber: i,
-		}
-		if ack, ok := f.history.get(key); ok {
-			if chunk.PacketStatusSymbol != rtcp.TypeTCCPacketNotReceived {
-				if len(deltas)-1 < deltaIndex {
-					return deltaIndex, refTime, result, errInvalidFeedback
-				}
-				refTime = refTime.Add(time.Duration(deltas[deltaIndex].Delta) * time.Microsecond)
-				ack.Arrival = refTime
-				deltaIndex++
-			}
-			result[resultIndex] = ack
-		}
-		resultIndex++
-	}
-
-	return deltaIndex, refTime, result, nil
-}
-
-func (f *FeedbackAdapter) unpackStatusVectorChunk(
-	start uint16, refTime time.Time, chunk *rtcp.StatusVectorChunk, deltas []*rtcp.RecvDelta,
-) (consumedDeltas int, nextRef time.Time, acks []Acknowledgment, err error) {
-	result := make([]Acknowledgment, len(chunk.SymbolList))
-	deltaIndex := 0
-	resultIndex := 0
-	for i, symbol := range chunk.SymbolList {
-		key := feedbackHistoryKey{
-			ssrc:           0,
-			sequenceNumber: start + uint16(i), //nolint:gosec // G115
-		}
-		if ack, ok := f.history.get(key); ok {
-			if symbol != rtcp.TypeTCCPacketNotReceived {
-				if len(deltas)-1 < deltaIndex {
-					return deltaIndex, refTime, result, errInvalidFeedback
-				}
-				refTime = refTime.Add(time.Duration(deltas[deltaIndex].Delta) * time.Microsecond)
-				ack.Arrival = refTime
-				deltaIndex++
-			}
-			result[resultIndex] = ack
-		}
-		resultIndex++
-	}
-
-	return deltaIndex, refTime, result, nil
-}
-
 // OnTransportCCFeedback converts incoming TWCC RTCP packet feedback to
 // Acknowledgments.
+//
+// Changed from pion/interceptor v0.1.49 (see HistoryWindow for the other half):
+//   - A status for a packet that is not in the history is skipped. Upstream
+//     returned an empty Acknowledgment for it, which the loss estimator counted
+//     as a lost packet (zero arrival time) and the delay estimator as a packet
+//     sent at time zero. Its receive delta is still consumed, so the arrival
+//     times of the packets after it stay right (upstream skipped the delta too).
+//   - Only PacketStatusCount statuses are read. A status vector chunk always
+//     carries 7 or 14 symbols, and the ones past the count are filler that reads
+//     as "not received"; upstream reported the packets sent just after the
+//     feedback's range as lost.
 func (f *FeedbackAdapter) OnTransportCCFeedback(
 	_ time.Time, feedback *rtcp.TransportLayerCC,
 ) ([]Acknowledgment, error) {
@@ -153,30 +119,46 @@ func (f *FeedbackAdapter) OnTransportCCFeedback(
 	defer f.lock.Unlock()
 
 	result := []Acknowledgment{}
-	index := feedback.BaseSequenceNumber
+	sequenceNumber := feedback.BaseSequenceNumber
 	refTime := time.Time{}.Add(time.Duration(feedback.ReferenceTime) * 64 * time.Millisecond)
 	recvDeltas := feedback.RecvDeltas
+	remaining := int(feedback.PacketStatusCount)
+
+	status := func(symbol uint16) error {
+		received := symbol != rtcp.TypeTCCPacketNotReceived
+		if received {
+			if len(recvDeltas) == 0 {
+				return errInvalidFeedback
+			}
+			refTime = refTime.Add(time.Duration(recvDeltas[0].Delta) * time.Microsecond)
+			recvDeltas = recvDeltas[1:]
+		}
+		if ack, ok := f.history.get(feedbackHistoryKey{ssrc: 0, sequenceNumber: sequenceNumber}); ok {
+			if received {
+				ack.Arrival = refTime
+			}
+			result = append(result, ack)
+		}
+		sequenceNumber++
+		remaining--
+
+		return nil
+	}
 
 	for _, chunk := range feedback.PacketChunks {
 		switch chunk := chunk.(type) {
 		case *rtcp.RunLengthChunk:
-			n, nextRefTime, acks, err := f.unpackRunLengthChunk(index, refTime, chunk, recvDeltas)
-			if err != nil {
-				return nil, err
+			for i := 0; i < int(chunk.RunLength) && remaining > 0; i++ {
+				if err := status(chunk.PacketStatusSymbol); err != nil {
+					return nil, err
+				}
 			}
-			refTime = nextRefTime
-			result = append(result, acks...)
-			recvDeltas = recvDeltas[n:]
-			index = uint16(int(index) + len(acks)) //nolint:gosec // G115
 		case *rtcp.StatusVectorChunk:
-			n, nextRefTime, acks, err := f.unpackStatusVectorChunk(index, refTime, chunk, recvDeltas)
-			if err != nil {
-				return nil, err
+			for i := 0; i < len(chunk.SymbolList) && remaining > 0; i++ {
+				if err := status(chunk.SymbolList[i]); err != nil {
+					return nil, err
+				}
 			}
-			refTime = nextRefTime
-			result = append(result, acks...)
-			recvDeltas = recvDeltas[n:]
-			index = uint16(int(index) + len(acks)) //nolint:gosec // G115
 		default:
 			return nil, errInvalidFeedback
 		}
@@ -219,15 +201,17 @@ type feedbackHistoryKey struct {
 	sequenceNumber uint16
 }
 
+// feedbackHistory holds the packets sent in the last window, newest at the
+// front of evictList.
 type feedbackHistory struct {
-	size      int
+	window    time.Duration
 	evictList *list.List
 	items     map[feedbackHistoryKey]*list.Element
 }
 
-func newFeedbackHistory(size int) *feedbackHistory {
+func newFeedbackHistory(window time.Duration) *feedbackHistory {
 	return &feedbackHistory{
-		size:      size,
+		window:    window,
 		evictList: list.New(),
 		items:     make(map[feedbackHistoryKey]*list.Element),
 	}
@@ -259,8 +243,12 @@ func (f *feedbackHistory) add(ack Acknowledgment) {
 	// Add new
 	ent := f.evictList.PushFront(ack)
 	f.items[key] = ent
-	// Evict if necessary
-	if f.evictList.Len() > f.size {
+	// Evict what has left the window
+	for ent := f.evictList.Back(); ent != nil; ent = f.evictList.Back() {
+		oldest, ok := ent.Value.(Acknowledgment)
+		if ok && ack.Departure.Sub(oldest.Departure) <= f.window {
+			break
+		}
 		f.removeOldest()
 	}
 }
