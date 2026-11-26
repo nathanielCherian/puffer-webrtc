@@ -50,7 +50,7 @@ func main() {
 		ipv6          = flag.Bool("ipv6", false, "also gather IPv6 candidates")
 		startBitrate  = flag.Int("start-bitrate", 1_000_000, "GCC initial bitrate (bps)")
 		minBitrate    = flag.Int("min-bitrate", 100_000, "GCC minimum bitrate (bps)")
-		maxBitrate    = flag.Int("max-bitrate", 6_000_000, "GCC maximum bitrate (bps)")
+		maxBitrate    = flag.Int("max-bitrate", 3_200_000, "GCC maximum bitrate (bps)")
 		audioBitrate  = flag.Int("audio-bitrate", 64_000, "Opus bitrate (bps)")
 		headroom      = flag.Float64("headroom", 0.9, "fraction of the CC target given to audio+video payload")
 		keyintSec     = flag.Float64("keyint", 0, "seconds between periodic IDRs (0 = only on PLI/FIR)")

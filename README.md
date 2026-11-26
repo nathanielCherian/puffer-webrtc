@@ -70,7 +70,7 @@ Every flag can also be set as `PUFFER_<FLAG>` (e.g. `PUFFER_UDP_PORT=50010`).
 | `--udp-port` / `--udp-bind` | `50000` / all | single UDP port for all media |
 | `--public-ip` | | IP(s) to advertise instead of interface IPs |
 | `--stun` | | STUN URL(s) |
-| `--start-bitrate` / `--min-bitrate` / `--max-bitrate` | 1M / 100k / 6M | GCC limits (bps) |
+| `--start-bitrate` / `--min-bitrate` / `--max-bitrate` | 1M / 100k / 3.2M | GCC limits (bps). The maximum also bounds simulcast fill padding and which layers are reachable: a viewer switches up to a layer only when `max × headroom − audio` is at least 1.1× the layer's bitrate. The default is just enough for a 2500k top layer (which needs about 3.13M); a higher top layer needs a higher `--max-bitrate` |
 | `--audio-bitrate` | 64000 | Opus bitrate |
 | `--headroom` | 0.9 | video target = `headroom × CC target − audio bitrate` |
 | `--keyint` | 0 | seconds between periodic IDRs (0 = only on PLI/FIR) |
